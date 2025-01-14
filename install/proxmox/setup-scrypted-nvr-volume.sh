@@ -20,7 +20,7 @@ fi
 
 if [ -z "$VMID" ]
 then
-    VMID="10443"
+    VMID="104434"
 fi
 FILE="/etc/pve/lxc/$VMID.conf"
 
