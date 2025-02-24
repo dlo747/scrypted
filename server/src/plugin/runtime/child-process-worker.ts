@@ -44,7 +44,9 @@ export abstract class ChildProcessWorker extends EventEmitter implements Runtime
     kill(): void {
         if (!this.worker)
             return;
-        this.worker.kill('SIGKILL');
+        const { worker } = this;
+        worker.kill();
+        setTimeout(() => worker.kill('SIGKILL'), 1000);
         this.worker = undefined;
     }
 

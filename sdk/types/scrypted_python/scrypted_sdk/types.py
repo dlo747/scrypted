@@ -84,6 +84,7 @@ class ScryptedDeviceType(str, Enum):
     Event = "Event"
     Fan = "Fan"
     Garage = "Garage"
+    Internal = "Internal"
     Irrigation = "Irrigation"
     Light = "Light"
     Lock = "Lock"
@@ -117,6 +118,7 @@ class ScryptedInterface(str, Enum):
     BinarySensor = "BinarySensor"
     Brightness = "Brightness"
     BufferConverter = "BufferConverter"
+    Buttons = "Buttons"
     Camera = "Camera"
     Charger = "Charger"
     ClusterForkInterface = "ClusterForkInterface"
@@ -166,6 +168,7 @@ class ScryptedInterface(str, Enum):
     PM25Sensor = "PM25Sensor"
     PositionSensor = "PositionSensor"
     PowerSensor = "PowerSensor"
+    PressButtons = "PressButtons"
     Program = "Program"
     PushHandler = "PushHandler"
     Readme = "Readme"
@@ -183,7 +186,9 @@ class ScryptedInterface(str, Enum):
     ScryptedSystemDevice = "ScryptedSystemDevice"
     ScryptedUser = "ScryptedUser"
     SecuritySystem = "SecuritySystem"
+    Sensors = "Sensors"
     Settings = "Settings"
+    Sleep = "Sleep"
     StartStop = "StartStop"
     StreamService = "StreamService"
     TamperSensor = "TamperSensor"
@@ -199,6 +204,7 @@ class ScryptedInterface(str, Enum):
     VideoFrameGenerator = "VideoFrameGenerator"
     VideoRecorder = "VideoRecorder"
     VideoRecorderManagement = "VideoRecorderManagement"
+    VideoTextOverlays = "VideoTextOverlays"
     VOCSensor = "VOCSensor"
 
 class ScryptedMimeTypes(str, Enum):
@@ -286,11 +292,6 @@ class ClipPath(TypedDict):
     pass
 
 
-class Point(TypedDict):
-
-    pass
-
-
 class AudioStreamOptions(TypedDict):
 
     bitrate: float
@@ -322,8 +323,8 @@ class ObjectDetectionResult(TypedDict):
     boundingBox: tuple[float, float, float, float]  # x, y, width, height
     className: str  # The detection class of the object.
     clipPaths: list[ClipPath]  # The detection clip paths that outlines various features or segments, like traced facial features.
+    clipped: bool  # Flag that indicates whether the detection was clipped by the detection input and may not be a full bounding box.
     cost: float  # The certainty that this is correct tracked object.
-    descriptor: str  # A base64 encoded Float32Array that represents the vector descriptor of the detection. Can be used to compute euclidian distance to determine similarity.
     embedding: str  # Base64 encoded embedding float32 vector.
     history: ObjectDetectionHistory
     id: str  # The id of the tracked object.
@@ -443,6 +444,11 @@ class MediaStreamTool(TypedDict):
     pass
 
 
+class Point(TypedDict):
+
+    pass
+
+
 class AdoptDevice(TypedDict):
 
     nativeId: str
@@ -468,6 +474,7 @@ class ClusterForkInterfaceOptions(TypedDict):
 
 class ClusterWorker(TypedDict):
 
+    address: str
     forks: list[ClusterFork]
     id: str
     labels: list[str]
@@ -667,6 +674,7 @@ class NotifierOptions(TypedDict):
     badge: str
     body: str
     bodyWithSubtitle: str
+    critical: bool
     data: Any
     dir: NotificationDirection
     image: str
@@ -876,6 +884,12 @@ class SecuritySystemState(TypedDict):
     supportedModes: list[SecuritySystemMode]
     triggered: bool
 
+class Sensor(TypedDict):
+
+    name: str
+    unit: str
+    value: str | float
+
 class Setting(TypedDict):
 
     choices: list[str]
@@ -884,15 +898,18 @@ class Setting(TypedDict):
     description: str
     deviceFilter: str
     group: str
+    icon: str
+    icons: list[str]
     immediate: bool  # Flag that the UI should immediately apply this setting.
     key: str
     multiple: bool
     placeholder: str
-    range: tuple[float, float]  # The range of allowed numbers, if any, when the type is 'number'.
+    radioGroups: list[str]
+    range: tuple[float, float]  # The range of allowed numbers or dates/times, if any, when the type is number, timerange, or daterange, or datetimerange.
     readonly: bool
     subgroup: str
     title: str
-    type: Any | Any | Any | Any | Any | Any | Any | Any | Any | Any | Any | Any | Any | Any | Any | Any
+    type: Any | Any | Any | Any | Any | Any | Any | Any | Any | Any | Any | Any | Any | Any | Any | Any | Any | Any | Any | Any | Any
     value: SettingValue
 
 class TemperatureCommand(TypedDict):
@@ -940,6 +957,13 @@ class VideoFrameGeneratorOptions(TypedDict):
     queue: float
     resize: Any
 
+class VideoTextOverlay(TypedDict):
+
+    fontSize: float
+    origin: Point  # The top left position of the overlay in the image, normalized to 0-1.
+    readonly: bool
+    text: str | bool  # The text value to set the overlay to, if it is not readonly. True or false otherwise to enable/disable.
+
 class MediaConverterTypes(TypedDict):
     """[fromMimeType, toMimeType]"""
 
@@ -951,7 +975,7 @@ class TamperState(TypedDict):
     pass
 
 
-TYPES_VERSION = "0.3.98"
+TYPES_VERSION = "0.3.114"
 
 
 class AirPurifier:
@@ -1005,6 +1029,10 @@ class BufferConverter:
     async def convert(self, data: Any, fromMimeType: str, toMimeType: str, options: MediaObjectOptions = None) -> Any:
         pass
 
+
+class Buttons:
+
+    buttons: list[str]
 
 class Camera:
     """Camera devices can take still photos."""
@@ -1376,6 +1404,12 @@ class PowerSensor:
 
     powerDetected: bool
 
+class PressButtons:
+
+    async def pressButton(self, button: str) -> None:
+        pass
+
+
 class Program:
 
     async def run(self, variables: Any = None) -> Any:
@@ -1513,6 +1547,10 @@ class SecuritySystem:
         pass
 
 
+class Sensors:
+
+    sensors: Mapping[str, Sensor]
+
 class Settings:
     """Settings viewing and editing of device configurations that describe or modify behavior."""
 
@@ -1522,6 +1560,10 @@ class Settings:
     async def putSetting(self, key: str, value: SettingValue) -> None:
         pass
 
+
+class Sleep:
+
+    sleeping: bool
 
 class StartStop:
     """StartStop represents a device that can be started, stopped, and possibly paused and resumed. Typically vacuum cleaners or washers."""
@@ -1646,6 +1688,15 @@ class VideoRecorderManagement:
         pass
 
     async def setRecordingActive(self, recordingActive: bool) -> None:
+        pass
+
+
+class VideoTextOverlays:
+
+    async def getVideoTextOverlays(self) -> Mapping[str, VideoTextOverlay]:
+        pass
+
+    async def setVideoTextOverlay(self, id: str, value: VideoTextOverlay) -> None:
         pass
 
 
@@ -1833,6 +1884,9 @@ class EndpointManager:
 
 class ClusterManager:
 
+    def getClusterAddress(self) -> str:
+        pass
+
     def getClusterMode(self) -> Any | Any:
         pass
 
@@ -1864,6 +1918,8 @@ class ScryptedInterfaceProperty(str, Enum):
     colorTemperature = "colorTemperature"
     rgb = "rgb"
     hsv = "hsv"
+    buttons = "buttons"
+    sensors = "sensors"
     running = "running"
     paused = "paused"
     docked = "docked"
@@ -1884,6 +1940,7 @@ class ScryptedInterfaceProperty(str, Enum):
     converters = "converters"
     binaryState = "binaryState"
     tampered = "tampered"
+    sleeping = "sleeping"
     powerDetected = "powerDetected"
     audioDetected = "audioDetected"
     motionDetected = "motionDetected"
@@ -1924,6 +1981,7 @@ class ScryptedInterfaceMethods(str, Enum):
     setColorTemperature = "setColorTemperature"
     setRgb = "setRgb"
     setHsv = "setHsv"
+    pressButton = "pressButton"
     sendNotification = "sendNotification"
     start = "start"
     stop = "stop"
@@ -1942,6 +2000,8 @@ class ScryptedInterfaceMethods(str, Enum):
     getVideoStreamOptions = "getVideoStreamOptions"
     getPrivacyMasks = "getPrivacyMasks"
     setPrivacyMasks = "setPrivacyMasks"
+    getVideoTextOverlays = "getVideoTextOverlays"
+    setVideoTextOverlay = "setVideoTextOverlay"
     getRecordingStream = "getRecordingStream"
     getRecordingStreamCurrentTime = "getRecordingStreamCurrentTime"
     getRecordingStreamOptions = "getRecordingStreamOptions"
@@ -2179,6 +2239,22 @@ class DeviceState:
         self.setScryptedProperty("hsv", value)
 
     @property
+    def buttons(self) -> list[str]:
+        return self.getScryptedProperty("buttons")
+
+    @buttons.setter
+    def buttons(self, value: list[str]):
+        self.setScryptedProperty("buttons", value)
+
+    @property
+    def sensors(self) -> Mapping[str, Sensor]:
+        return self.getScryptedProperty("sensors")
+
+    @sensors.setter
+    def sensors(self, value: Mapping[str, Sensor]):
+        self.setScryptedProperty("sensors", value)
+
+    @property
     def running(self) -> bool:
         return self.getScryptedProperty("running")
 
@@ -2337,6 +2413,14 @@ class DeviceState:
     @tampered.setter
     def tampered(self, value: TamperState):
         self.setScryptedProperty("tampered", value)
+
+    @property
+    def sleeping(self) -> bool:
+        return self.getScryptedProperty("sleeping")
+
+    @sleeping.setter
+    def sleeping(self, value: bool):
+        self.setScryptedProperty("sleeping", value)
 
     @property
     def powerDetected(self) -> bool:
@@ -2612,6 +2696,27 @@ ScryptedInterfaceDescriptors = {
       "hsv"
     ]
   },
+  "Buttons": {
+    "name": "Buttons",
+    "methods": [],
+    "properties": [
+      "buttons"
+    ]
+  },
+  "PressButtons": {
+    "name": "PressButtons",
+    "methods": [
+      "pressButton"
+    ],
+    "properties": []
+  },
+  "Sensors": {
+    "name": "Sensors",
+    "methods": [],
+    "properties": [
+      "sensors"
+    ]
+  },
   "Notifier": {
     "name": "Notifier",
     "methods": [
@@ -2719,6 +2824,14 @@ ScryptedInterfaceDescriptors = {
     "methods": [
       "getPrivacyMasks",
       "setPrivacyMasks"
+    ],
+    "properties": []
+  },
+  "VideoTextOverlays": {
+    "name": "VideoTextOverlays",
+    "methods": [
+      "getVideoTextOverlays",
+      "setVideoTextOverlay"
     ],
     "properties": []
   },
@@ -2936,6 +3049,13 @@ ScryptedInterfaceDescriptors = {
     "methods": [],
     "properties": [
       "tampered"
+    ]
+  },
+  "Sleep": {
+    "name": "Sleep",
+    "methods": [],
+    "properties": [
+      "sleeping"
     ]
   },
   "PowerSensor": {

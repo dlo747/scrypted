@@ -144,17 +144,15 @@ class OpenVINOPlugin(
             mode = "AUTO"
 
             if npu:
-                mode = "NPU"
+                if gpu:
+                    mode = f"AUTO:NPU,GPU,CPU"
+                else:
+                    mode = f"AUTO:NPU,CPU"
             elif len(dgpus):
                 mode = f"AUTO:{','.join(dgpus)},CPU"
             # forcing GPU can cause crashes on older GPU.
             elif gpu:
                 mode = f"GPU"
-
-        # recognition models are not supported on NPU.
-        self.recognition_mode = mode
-        if "NPU" in mode:
-            self.recognition_mode = "AUTO"
 
         mode = mode or "AUTO"
         self.mode = mode
@@ -198,7 +196,7 @@ class OpenVINOPlugin(
             f"https://github.com/koush/openvino-models/raw/main/{model}/{precision}/{ovmodel}.xml",
             f"{model_version}/{model}/{precision}/{ovmodel}.xml",
         )
-        binFile = self.downloadFile(
+        self.downloadFile(
             f"https://github.com/koush/openvino-models/raw/main/{model}/{precision}/{ovmodel}.bin",
             f"{model_version}/{model}/{precision}/{ovmodel}.bin",
         )
@@ -222,8 +220,6 @@ class OpenVINOPlugin(
                 "https://github.com/koush/openvino-models/raw/main/coco_labels.txt",
                 "coco_labels.txt",
             )
-
-        print(xmlFile, binFile, labelsFile)
 
         try:
             self.compiled_model = self.core.compile_model(xmlFile, mode)

@@ -10,6 +10,7 @@ import { fixLegacyClipPath, normalizeBox, polygonContainsBoundingBox, polygonInt
 import { SMART_MOTIONSENSOR_PREFIX, SmartMotionSensor } from './smart-motionsensor';
 import { SMART_OCCUPANCYSENSOR_PREFIX, SmartOccupancySensor } from './smart-occupancy-sensor';
 import { getAllDevices, safeParseJson } from './util';
+import { FFmpegAudioDetectionMixinProvider } from './ffmpeg-audiosensor';
 
 
 const { systemManager } = sdk;
@@ -854,7 +855,8 @@ class ObjectDetectionMixin extends SettingsMixinDeviceBase<VideoCamera & Camera 
       return;
     }
     if (key.startsWith('zoneinfo-')) {
-      const [zkey, zoneName] = key.substring('zoneinfo-'.length).split('-');
+      const [zkey, ...zoneNameParts] = key.substring('zoneinfo-'.length).split('-');
+      const zoneName = zoneNameParts.join('-');
       this.zoneInfos[zoneName] ||= {};
       this.zoneInfos[zoneName][zkey] = value;
       this.storage.setItem('zoneInfos', JSON.stringify(this.zoneInfos));
@@ -1051,12 +1053,21 @@ export class ObjectDetectionPlugin extends AutoenableMixinProvider implements Se
     process.nextTick(() => {
       sdk.deviceManager.onDeviceDiscovered({
         name: 'FFmpeg Frame Generator',
-        type: ScryptedDeviceType.Builtin,
+        type: ScryptedDeviceType.Internal,
         interfaces: [
           ScryptedInterface.VideoFrameGenerator,
         ],
         nativeId: 'ffmpeg',
-      })
+      });
+
+      sdk.deviceManager.onDeviceDiscovered({
+        name: 'FFmpeg Audio Detection',
+        type: ScryptedDeviceType.Internal,
+        interfaces: [
+          ScryptedInterface.MixinProvider,
+        ],
+        nativeId: 'ffmpeg-audio-detection',
+      });
     });
 
     // on an interval check to see if system load allows squelched detectors to start up.
@@ -1195,6 +1206,8 @@ export class ObjectDetectionPlugin extends AutoenableMixinProvider implements Se
     let ret: any;
     if (nativeId === 'ffmpeg')
       ret = this.devices.get(nativeId) || new FFmpegVideoFrameGenerator('ffmpeg');
+    if (nativeId === 'ffmpeg-audio-detection')
+      ret = this.devices.get(nativeId) || new FFmpegAudioDetectionMixinProvider('ffmpeg-audio-detection');
     if (nativeId?.startsWith(SMART_MOTIONSENSOR_PREFIX))
       ret = this.devices.get(nativeId) || new SmartMotionSensor(this, nativeId);
     if (nativeId?.startsWith(SMART_OCCUPANCYSENSOR_PREFIX))

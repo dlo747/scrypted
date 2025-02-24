@@ -24,14 +24,45 @@ export interface Stream {
     width: number;
 }
 
+export interface PurpleOsdChannel {
+    enable: number;
+    name: string;
+    pos: string;
+}
+
+export interface PurpleOsdTime {
+    enable: number;
+    pos: string;
+}
+export interface InitialOsd {
+    bgcolor: number;
+    channel: number;
+    osdChannel: PurpleOsdChannel;
+    osdTime: PurpleOsdTime;
+    watermark: number;
+}
+
+export interface Initial {
+    Osd: InitialOsd;
+}
+
+export interface Osd {
+    cmd: string;
+    code: number;
+    initial: Initial;
+    range: Range;
+    value: Initial;
+}
+
+
 export interface AIDetectionState {
     alarm_state: number;
     support: number;
 }
 
-export type AIState = {
-    [key: string]: AIDetectionState;
-} & {
+type AiKey = 'dog_cat' | 'face' | 'other' | 'package' | 'people';
+
+export type AIState = Partial<Record<AiKey, AIDetectionState>> & {
     channel: number;
 };
 
@@ -131,6 +162,59 @@ export class ReolinkCameraClient {
             value: !!response.body?.[0]?.value?.state,
             data: response.body,
         };
+    }
+
+    async getOsd(): Promise<Osd> {
+        const url = new URL(`http://${this.host}/api.cgi`);
+
+        const body = [
+            {
+                cmd: "GetOsd",
+                action: 1,
+                param: { channel: this.channelId }
+            },
+        ];
+
+        const response = await this.requestWithLogin({
+            url,
+            responseType: 'json',
+            method: 'POST',
+        }, this.createReadable(body));
+
+        const error = response.body?.find(elem => elem.error)?.error;
+        if (error) {
+            this.console.error('error during call to getOsd', error);
+        }
+
+        return response.body?.[0] as Osd;
+    }
+
+    async setOsd(osd: Osd) {
+        const url = new URL(`http://${this.host}/api.cgi`);
+
+        const body = [
+            {
+                cmd: "SetOsd",
+                param: {
+                    Osd: {
+                        channel: this.channelId,
+                        osdChannel: osd.value.Osd.osdChannel,
+                        osdTime: osd.value.Osd.osdTime,
+                    }
+                }
+            }
+        ];
+
+        const response = await this.requestWithLogin({
+            url,
+            responseType: 'json',
+            method: 'POST',
+        }, this.createReadable(body));
+
+        const error = response.body?.find(elem => elem.error)?.error;
+        if (error) {
+            this.console.error('error during call to getOsd', error);
+        }
     }
 
     async getAiState() {
@@ -492,7 +576,92 @@ export class ReolinkCameraClient {
 
         return {
             batteryPercent: batteryInfoEntry?.batteryPercent,
-            sleep: channelStatusEntry?.sleep === 1,
+            sleeping: channelStatusEntry?.sleep === 1,
+        }
+    }
+
+    async getEvents() {
+        const url = new URL(`http://${this.host}/api.cgi`);
+
+        const body = [
+            {
+                cmd: "GetEvents",
+                action: 0,
+                param: { channel: this.channelId }
+            },
+        ];
+
+        const response = await this.requestWithLogin({
+            url,
+            responseType: 'json',
+            method: 'POST',
+        }, this.createReadable(body));
+
+        const error = response.body?.find(elem => elem.error)?.error;
+        if (error) {
+            this.console.error('error during call to getEvents', error);
+        }
+
+        return {
+            value: (response.body?.[0]?.value?.ai || response.body?.value?.ai) as AIState,
+            data: response.body,
+        };
+    }
+
+    async getPirState(on?: boolean) {
+        const url = new URL(`http://${this.host}/api.cgi`);
+
+        const body = [{
+            cmd: 'GetPirInfo',
+            action: 0,
+            param: { channel: this.channelId }
+        }];
+
+        const response = await this.requestWithLogin({
+            url,
+            method: 'POST',
+            responseType: 'json',
+        }, this.createReadable(body));
+
+        const error = response.body?.[0]?.error;
+        if (error) {
+            this.console.error('error during call to setWhiteLedState', JSON.stringify(body), error);
+        }
+
+        return response.body?.[0]?.value?.pirInfo;
+    }
+
+    async setPirState(on: boolean) {
+        const url = new URL(`http://${this.host}/api.cgi`);
+
+        const currentPir = await this.getPirState();
+        const newState = on ? 1 : 0;
+
+        if (!currentPir || currentPir.enable === newState) {
+            return;
+        }
+
+        const pirInfo = {
+            ...currentPir,
+            channel: this.channelId,
+            enable: newState
+        }
+
+        const body = [{
+            cmd: 'SetPirInfo',
+            action: 0,
+            param: { pirInfo }
+        }];
+
+        const response = await this.requestWithLogin({
+            url,
+            method: 'POST',
+            responseType: 'json',
+        }, this.createReadable(body));
+
+        const error = response.body?.[0]?.error;
+        if (error) {
+            this.console.error('error during call to setPirState', JSON.stringify(body), error);
         }
     }
 }

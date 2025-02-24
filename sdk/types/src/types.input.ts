@@ -98,7 +98,14 @@ export interface EventListenerRegister {
  * @category Core Reference
  */
 export enum ScryptedDeviceType {
+  /**
+   * @deprecated
+   */
   Builtin = "Builtin",
+  /**
+   * Internal devices will not show up in device lists unless explicitly searched.
+   */
+  Internal = "Internal",
   Camera = "Camera",
   Fan = "Fan",
   Light = "Light",
@@ -214,6 +221,24 @@ export interface ColorHsv {
   v?: number;
 }
 
+export interface Buttons {
+  buttons?: ('doorbell' | string)[];
+}
+
+export interface Sensor {
+  name: string;
+  value?: string | number;
+  unit?: string;
+}
+
+export interface Sensors {
+  sensors: Record<string, Sensor>;
+}
+
+export interface PressButtons {
+  pressButton(button: string): Promise<void>;
+}
+
 export interface NotificationAction {
   action: string;
   icon?: string;
@@ -234,6 +259,7 @@ export interface NotifierOptions {
   renotify?: boolean;
   requireInteraction?: boolean;
   silent?: boolean;
+  critical?: boolean;
   /**
    * Collapse key/id.
    */
@@ -953,6 +979,24 @@ export interface VideoCameraMask {
   setPrivacyMasks(masks: PrivacyMasks): Promise<void>;
 }
 
+export interface VideoTextOverlay {
+  /**
+   * The top left position of the overlay in the image, normalized to 0-1.
+   */
+  origin?: Point;
+  fontSize?: number;
+  /**
+   * The text value to set the overlay to, if it is not readonly. True or false otherwise to enable/disable.
+   */
+  text?: string | boolean;
+  readonly?: boolean;
+}
+
+export interface VideoTextOverlays {
+  getVideoTextOverlays(): Promise<Record<string, VideoTextOverlay>>;
+  setVideoTextOverlay(id: string, value: VideoTextOverlay): Promise<void>;
+}
+
 export enum PanTiltZoomMovement {
   Absolute = "Absolute",
   Relative = "Relative",
@@ -1259,6 +1303,10 @@ export interface Charger {
   chargeState?: ChargeState;
 }
 
+export interface Sleep {
+  sleeping?: boolean;
+}
+
 export interface Reboot {
   reboot(): Promise<void>;
 }
@@ -1532,6 +1580,10 @@ export interface ObjectDetectionResult extends BoundingBoxResult {
    */
   cost?: number;
   /**
+   * Flag that indicates whether the detection was clipped by the detection input and may not be a full bounding box.
+   */
+  clipped?: boolean;
+  /**
    * The detection class of the object.
    */
   className: ObjectDetectionClass;
@@ -1547,11 +1599,6 @@ export interface ObjectDetectionResult extends BoundingBoxResult {
    * The score of the label.
    */
   labelScore?: number;
-  /**
-   * A base64 encoded Float32Array that represents the vector descriptor of the detection.
-   * Can be used to compute euclidian distance to determine similarity.
-   */
-  descriptor?: string;
   /**
    * The detection landmarks, like key points in a face landmarks.
    */
@@ -2210,13 +2257,37 @@ export interface Setting {
   subgroup?: string;
   description?: string;
   placeholder?: string;
-  type?: 'string' | 'password' | 'number' | 'boolean' | 'device' | 'integer' | 'button' | 'clippath' | 'interface' | 'html' | 'textarea' | 'date' | 'time' | 'datetime' | 'day' | 'script';
+  type?:
+  'string' |
+  'password' |
+  'number' |
+  'boolean' |
+  'device' |
+  'integer' |
+  'button' |
+  'clippath' |
+  'interface' |
+  'html' |
+  'textarea' |
+  'date' |
+  'time' |
+  'datetime' |
+  'day' |
+  'timerange' |
+  'daterange' |
+  'datetimerange' |
+  'radiobutton' |
+  'radiopanel' |
+  'script';
   /**
-   * The range of allowed numbers, if any, when the type is 'number'.
+   * The range of allowed numbers or dates/times, if any, when the type is number, timerange, or daterange, or datetimerange.
    */
   range?: [number, number];
   readonly?: boolean;
   choices?: string[];
+  icon?: string;
+  icons?: string[];
+  radioGroups?: string[];
   combobox?: boolean;
   deviceFilter?: string;
   multiple?: boolean;
@@ -2255,6 +2326,9 @@ export enum ScryptedInterface {
   ColorSettingTemperature = "ColorSettingTemperature",
   ColorSettingRgb = "ColorSettingRgb",
   ColorSettingHsv = "ColorSettingHsv",
+  Buttons = "Buttons",
+  PressButtons = "PressButtons",
+  Sensors = "Sensors",
   Notifier = "Notifier",
   StartStop = "StartStop",
   Pause = "Pause",
@@ -2268,6 +2342,7 @@ export enum ScryptedInterface {
   Display = "Display",
   VideoCamera = "VideoCamera",
   VideoCameraMask = "VideoCameraMask",
+  VideoTextOverlays = "VideoTextOverlays",
   VideoRecorder = "VideoRecorder",
   VideoRecorderManagement = "VideoRecorderManagement",
   PanTiltZoom = "PanTiltZoom",
@@ -2294,6 +2369,7 @@ export enum ScryptedInterface {
   Settings = "Settings",
   BinarySensor = "BinarySensor",
   TamperSensor = "TamperSensor",
+  Sleep = "Sleep",
   PowerSensor = "PowerSensor",
   AudioSensor = "AudioSensor",
   MotionSensor = "MotionSensor",
@@ -2683,6 +2759,7 @@ export interface ClusterWorker {
   labels: string[];
   forks: ClusterFork[];
   mode: 'server' | 'client';
+  address: string;
 }
 
 export interface ClusterManager {
@@ -2691,6 +2768,7 @@ export interface ClusterManager {
    * Returns undefined if this is not a cluster worker.
    */
   getClusterWorkerId(): string;
+  getClusterAddress(): string;
   getClusterMode(): 'server' | 'client' | undefined;
   getClusterWorkers(): Promise<Record<string, ClusterWorker>>;
 }

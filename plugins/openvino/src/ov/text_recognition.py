@@ -23,12 +23,16 @@ class OpenVINOTextRecognition(TextRecognition):
             f"https://github.com/koush/openvino-models/raw/main/{model}/{precision}/{ovmodel}.xml",
             f"{model_version}/{model}/{precision}/{ovmodel}.xml",
         )
-        binFile = self.downloadFile(
+        self.downloadFile(
             f"https://github.com/koush/openvino-models/raw/main/{model}/{precision}/{ovmodel}.bin",
             f"{model_version}/{model}/{precision}/{ovmodel}.bin",
         )
-        print(xmlFile, binFile)
-        return self.plugin.core.compile_model(xmlFile, self.plugin.recognition_mode)
+        if "vgg" in model:
+            model = self.plugin.core.read_model(xmlFile)
+            model.reshape([1, 1, 64, 384])
+            return self.plugin.core.compile_model(model, self.plugin.mode)
+        else:
+            return self.plugin.core.compile_model(xmlFile, self.plugin.mode)
 
     async def predictDetectModel(self, input: np.ndarray):
         def predict():

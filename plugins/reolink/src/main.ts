@@ -1,5 +1,5 @@
 import { sleep } from '@scrypted/common/src/sleep';
-import sdk, { Brightness, Camera, Device, DeviceCreatorSettings, DeviceInformation, DeviceProvider, Intercom, MediaObject, ObjectDetectionTypes, ObjectDetector, ObjectsDetected, OnOff, PanTiltZoom, PanTiltZoomCommand, Reboot, RequestPictureOptions, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, Setting } from "@scrypted/sdk";
+import sdk, { Sleep, Brightness, Camera, Device, DeviceCreatorSettings, DeviceInformation, DeviceProvider, Intercom, MediaObject, ObjectDetectionTypes, ObjectDetector, ObjectsDetected, OnOff, PanTiltZoom, PanTiltZoomCommand, Reboot, RequestPictureOptions, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, Setting, VideoTextOverlay, VideoTextOverlays } from "@scrypted/sdk";
 import { StorageSettings } from '@scrypted/sdk/storage-settings';
 import { EventEmitter } from "stream";
 import { createRtspMediaStreamOptions, Destroyable, RtspProvider, RtspSmartCamera, UrlMediaStreamOptions } from "../../rtsp/src/rtsp";
@@ -78,7 +78,30 @@ class ReolinkCameraFloodlight extends ScryptedDeviceBase implements OnOff, Brigh
     }
 }
 
-class ReolinkCamera extends RtspSmartCamera implements Camera, DeviceProvider, Reboot, Intercom, ObjectDetector, PanTiltZoom {
+class ReolinkCameraPirSensor extends ScryptedDeviceBase implements OnOff {
+    constructor(public camera: ReolinkCamera, nativeId: string) {
+        super(nativeId);
+        this.on = false;
+    }
+
+    async turnOff() {
+        this.on = false;
+        await this.setPir(false);
+    }
+
+    async turnOn() {
+        this.on = true;
+        await this.setPir(true);
+    }
+
+    private async setPir(on: boolean) {
+        const api = this.camera.getClientWithToken();
+
+        await api.setPirState(on);
+    }
+}
+
+class ReolinkCamera extends RtspSmartCamera implements Camera, DeviceProvider, Reboot, Intercom, ObjectDetector, PanTiltZoom, Sleep, VideoTextOverlays {
     client: ReolinkCameraClient;
     clientWithToken: ReolinkCameraClient;
     onvifClient: OnvifCameraAPI;
@@ -87,6 +110,7 @@ class ReolinkCamera extends RtspSmartCamera implements Camera, DeviceProvider, R
     motionTimeout: NodeJS.Timeout;
     siren: ReolinkCameraSiren;
     floodlight: ReolinkCameraFloodlight;
+    pirSensor: ReolinkCameraPirSensor;
     batteryTimeout: NodeJS.Timeout;
 
     storageSettings = new StorageSettings(this, {
@@ -222,6 +246,43 @@ class ReolinkCamera extends RtspSmartCamera implements Camera, DeviceProvider, R
             });
     }
 
+    async getVideoTextOverlays(): Promise<Record<string, VideoTextOverlay>> {
+        const client = this.getClient();
+        const osd = await client.getOsd();
+
+        return {
+            osdChannel: {
+                text: osd.value.Osd.osdChannel.enable ? osd.value.Osd.osdChannel.name : undefined,
+            },
+            osdTime: {
+                text: !!osd.value.Osd.osdTime.enable,
+                readonly: true,
+            }
+        }
+    }
+
+    async setVideoTextOverlay(id: 'osdChannel' | 'osdTime', value: VideoTextOverlay): Promise<void> {
+        const client = this.getClient();
+        const osd = await client.getOsd();
+        if (id === 'osdChannel') {
+            const osdValue = osd.value.Osd.osdChannel;
+            osdValue.enable = value.text ? 1 : 0;
+            // name must always be valid.
+            osdValue.name = typeof value.text === 'string' && value.text
+                ? value.text
+                : osdValue.name || 'Camera';
+        }
+        else if (id === 'osdTime') {
+            const osdValue = osd.value.Osd.osdTime;
+            osdValue.enable = value.text ? 1 : 0;
+        }
+        else {
+            throw new Error('unknown overlay: ' + id);
+        }
+
+        await client.setOsd(osd);
+    }
+
     updatePtzCaps() {
         const { ptz } = this.storageSettings.values;
         this.ptzCapabilities = {
@@ -312,8 +373,12 @@ class ReolinkCamera extends RtspSmartCamera implements Camera, DeviceProvider, R
     }
 
     hasSiren() {
-        return this.storageSettings.values.abilities?.value?.Ability?.supportAudioAlarm?.ver
-            && this.storageSettings.values.abilities?.value?.Ability?.supportAudioAlarm?.ver !== 0;
+        const channel = this.getRtspChannel();
+        const mainAbility = this.storageSettings.values.abilities?.value?.Ability?.supportAudioAlarm
+        const channelAbility = this.storageSettings.values.abilities?.value?.Ability?.abilityChn?.[channel]?.supportAudioAlarm
+
+        return (mainAbility && mainAbility?.ver !== 0) || (channelAbility && channelAbility?.ver !== 0);
+
     }
 
     hasFloodlight() {
@@ -333,6 +398,16 @@ class ReolinkCamera extends RtspSmartCamera implements Camera, DeviceProvider, R
 
     hasBattery() {
         const batteryConfigVer = this.storageSettings.values.abilities?.value?.Ability?.abilityChn?.[this.getRtspChannel()]?.battery?.ver ?? 0;
+        return batteryConfigVer > 0;
+    }
+
+    hasPirEvents() {
+        const pirEvents = this.storageSettings.values.abilities?.value?.Ability?.abilityChn?.[this.getRtspChannel()]?.mdWithPir?.ver ?? 0;
+        return pirEvents > 0;
+    }
+
+    hasPirSensor() {
+        const batteryConfigVer = this.storageSettings.values.abilities?.value?.Ability?.abilityChn?.[this.getRtspChannel()]?.mdWithPir?.ver ?? 0;
         return batteryConfigVer > 0;
     }
 
@@ -359,10 +434,10 @@ class ReolinkCamera extends RtspSmartCamera implements Camera, DeviceProvider, R
         if (this.storageSettings.values.hasObjectDetector) {
             interfaces.push(ScryptedInterface.ObjectDetector);
         }
-        if (this.hasSiren() || this.hasFloodlight())
+        if (this.hasSiren() || this.hasFloodlight() || this.hasPirSensor())
             interfaces.push(ScryptedInterface.DeviceProvider);
         if (this.hasBattery()) {
-            interfaces.push(ScryptedInterface.Battery, ScryptedInterface.Online);
+            interfaces.push(ScryptedInterface.Battery, ScryptedInterface.Sleep);
             this.startBatteryCheckInterval();
         }
 
@@ -378,14 +453,20 @@ class ReolinkCamera extends RtspSmartCamera implements Camera, DeviceProvider, R
             const api = this.getClientWithToken();
 
             try {
-                const { batteryPercent, sleep } = await api.getBatteryInfo();
+                const { batteryPercent, sleeping } = await api.getBatteryInfo();
                 this.batteryLevel = batteryPercent;
-                this.online = !sleep;
+
+                if (sleeping !== this.sleeping) {
+                    this.sleeping = sleeping;
+                }
+                if (batteryPercent !== this.batteryLevel) {
+                    this.batteryLevel = batteryPercent;
+                }
             }
             catch (e) {
                 this.console.log('Error in getting battery info', e);
             }
-        }, 1000 * 60 * 30);
+        }, 1000 * 10);
     }
 
     async reboot() {
@@ -440,7 +521,7 @@ class ReolinkCamera extends RtspSmartCamera implements Camera, DeviceProvider, R
             let hasSet = false;
             while (!killed) {
                 try {
-                    const ai = await client.getAiState();
+                    const ai = this.hasPirEvents() ? await client.getEvents() : await client.getAiState();
                     ret.emit('data', JSON.stringify(ai.data));
 
                     const classes: string[] = [];
@@ -448,7 +529,7 @@ class ReolinkCamera extends RtspSmartCamera implements Camera, DeviceProvider, R
                     for (const key of Object.keys(ai.value)) {
                         if (key === 'channel')
                             continue;
-                        const { alarm_state, support } = ai.value[key];
+                        const { support } = ai.value[key];
                         if (support)
                             classes.push(key);
                     }
@@ -557,10 +638,19 @@ class ReolinkCamera extends RtspSmartCamera implements Camera, DeviceProvider, R
         (async () => {
             while (!killed) {
                 try {
-                    const { value, data } = await client.getMotionState();
-                    if (value)
-                        triggerMotion();
-                    ret.emit('data', JSON.stringify(data));
+                    // Battey cameras do not have AI state, they just send events in case of PIR sensor triggered
+                    // which equals a motion detected
+                    if (this.hasPirEvents()) {
+                        const { value, data } = await client.getEvents();
+                        if (!!value?.other?.alarm_state)
+                            triggerMotion();
+                        ret.emit('data', JSON.stringify(data));
+                    } else {
+                        const { value, data } = await client.getMotionState();
+                        if (value)
+                            triggerMotion();
+                        ret.emit('data', JSON.stringify(data));
+                    }
                 }
                 catch (e) {
                     ret.emit('error', e);
@@ -568,6 +658,7 @@ class ReolinkCamera extends RtspSmartCamera implements Camera, DeviceProvider, R
                 await sleep(1000);
             }
         })();
+
         startAI(ret, triggerMotion);
         return ret;
     }
@@ -692,7 +783,7 @@ class ReolinkCamera extends RtspSmartCamera implements Camera, DeviceProvider, R
         // 1: support main/extern/sub stream
         // 2: support main/sub stream
 
-        const live = this.storageSettings.values.abilities?.value?.Ability?.abilityChn?.[rtspChannel].live?.ver;
+        const live = this.storageSettings.values.abilities?.value?.Ability?.abilityChn?.[rtspChannel]?.live?.ver;
         const [rtmpMain, rtmpExt, rtmpSub, rtspMain, rtspSub] = streams;
         streams.splice(0, streams.length);
 
@@ -725,7 +816,8 @@ class ReolinkCamera extends RtspSmartCamera implements Camera, DeviceProvider, R
             [
                 "Reolink TrackMix PoE",
                 "Reolink TrackMix WiFi",
-                "RLC-81MA"
+                "RLC-81MA",
+                "Trackmix Series W760"
             ].includes(deviceInfo?.model)) {
             streams.push({
                 name: '',
@@ -833,6 +925,7 @@ class ReolinkCamera extends RtspSmartCamera implements Camera, DeviceProvider, R
     async reportDevices() {
         const hasSiren = this.hasSiren();
         const hasFloodlight = this.hasFloodlight();
+        const hasPirSensor = this.hasPirSensor();
 
         const devices: Device[] = [];
 
@@ -872,6 +965,24 @@ class ReolinkCamera extends RtspSmartCamera implements Camera, DeviceProvider, R
             devices.push(floodlightDevice);
         }
 
+        if (hasPirSensor) {
+            const pirNativeId = `${this.nativeId}-pir`;
+            const pirDevice: Device = {
+                providerNativeId: this.nativeId,
+                name: `${this.name} PIR sensor`,
+                nativeId: pirNativeId,
+                info: {
+                    ...this.info,
+                },
+                interfaces: [
+                    ScryptedInterface.OnOff
+                ],
+                type: ScryptedDeviceType.Switch,
+            };
+
+            devices.push(pirDevice);
+        }
+
         sdk.deviceManager.onDevicesChanged({
             providerNativeId: this.nativeId,
             devices
@@ -885,16 +996,20 @@ class ReolinkCamera extends RtspSmartCamera implements Camera, DeviceProvider, R
         } else if (nativeId.endsWith('-floodlight')) {
             this.floodlight ||= new ReolinkCameraFloodlight(this, nativeId);
             return this.floodlight;
+        } else if (nativeId.endsWith('-pir')) {
+            this.pirSensor ||= new ReolinkCameraPirSensor(this, nativeId);
+            return this.pirSensor;
         }
     }
 
     async releaseDevice(id: string, nativeId: string) {
         if (nativeId.endsWith('-siren')) {
             delete this.siren;
-        } else
-            if (nativeId.endsWith('-floodlight')) {
-                delete this.floodlight;
-            }
+        } else if (nativeId.endsWith('-floodlight')) {
+            delete this.floodlight;
+        } else if (nativeId.endsWith('-pir')) {
+            delete this.pirSensor;
+        }
     }
 }
 
@@ -910,6 +1025,7 @@ class ReolinkProvider extends RtspProvider {
             ScryptedInterface.Camera,
             ScryptedInterface.AudioSensor,
             ScryptedInterface.MotionSensor,
+            ScryptedInterface.VideoTextOverlays,
         ];
     }
 
